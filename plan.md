@@ -175,7 +175,7 @@ i_L   = raw.get_trace("I(L1)")
 Simulation batching lets you launch simulations in parallel, better exploiting available computing power GitHub — this is huge for RL since each episode = one sim call. You can run N parallel envs with N parallel LTspice processes.
 
 One Gotcha to Know
-On some LTspice installations, spicelib can fail to read .raw files due to differences in the .log file format across machines. GitHub Pin your LTspice version in your project README and test on your target OS (especially if running on Linux via Wine for the hackathon submission).
+On some LTspice installations, spicelib can fail to read .raw files due to differences in the .log file format across machines. Pin your LTspice version in your project README and test on your target OS (especially if running on Linux via Wine for OpenEnv submission).
 
 Bottom line: pip install spicelib, import directly, skip PyLTSpice entirely. Ready to scaffold the repo?PROBLEM STATEMENT
 Round 1 — Problem Statement
@@ -229,7 +229,7 @@ TaskDifficultyDescriptionBuck converter, fixed load, loose specsEasy12V→5V, ju
 HF Spaces + Dockerfile — the big one
 LTspice is a Windows GUI application. Running it on HF Spaces (Linux container, 2 vCPU, 8GB RAM) requires Wine. This is doable but adds real complexity to your Dockerfile. Your options:
 OptionProsConsLTspice via Wine in DockerAuthentic, uses real simulatorWine setup is fiddly, sim can be slowNGSpice (native Linux)No Wine, fast, headless, pip-installable via PySpiceNeed to rewrite netlists for NGSpice syntaxLTspice locally, NGSpice in DockerBest of both for dev vs deployTwo codepaths to maintain
-Recommendation for hackathon: Use NGSpice as the simulation backend in Docker (spicelib supports it), develop/test locally with LTspice. Your environment code stays identical — just swap the simulator class.
+Recommendation for OpenEnv compliance: Use NGSpice as the simulation backend in Docker (spicelib supports it), develop/test locally with LTspice. Your environment code stays identical; just swap the simulator class.
 Inference runtime < 20 min
 One LTspice/NGSpice transient sim can take 5–30 seconds depending on circuit complexity. With a baseline agent doing say 50 steps across 3 tasks, you're looking at 50 × 3 × ~10s = 25 min worst case. You need to:
 
