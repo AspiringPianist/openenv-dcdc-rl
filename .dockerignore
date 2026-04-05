@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+sim_output/
+*.raw
+*.log
+*.pdf
+plan.md
+sample_inference.py
+pre_validation.py

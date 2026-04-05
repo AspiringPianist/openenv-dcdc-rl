@@ -1,0 +1,142 @@
+* SpiceRL Buck Converter — AC Stability Analysis (Averaged Model)
+* ============================================================
+* Replica of buck_tran.net for loop gain / phase margin measurement.
+*
+* The switching power stage (M9/M10 + dead-time + drivers) is
+* replaced with a BEHAVIORAL AVERAGED MODEL:
+*   V_sw_avg = D * Vin (duty-cycle-averaged switch node voltage)
+*
+* The compensator (OpAmp + R4/C2/C3) and feedback divider
+* (R2/R3) are IDENTICAL to the transient netlist.
+*
+* Loop gain is measured via Middlebrook voltage injection at
+* the feedback node (N015). The loop is broken with a 1GH
+* inductor (maintains DC bias) and an AC source injects the
+* test signal.
+*
+* Outputs: phase_margin_deg, gain_margin_dB, crossover_freq
+* ============================================================
+
+* ===========================================================
+* AGENT-TUNABLE PARAMETERS (same as buck_tran.net)
+* ===========================================================
+.param W_hi_um = 40000
+.param W_lo_um = 20000
+.param L1_nH = 47
+.param C1_nF = 68
+.param fsw_MHz = 33.3
+.param R_comp = 4000
+.param C_comp_nF = 4
+.param C_comp2_pF = 1
+.param Rload = 4
+.param Vref = 0.6
+
+* Derived
+.param Tsw = {1/(fsw_MHz*1e6)}
+.param L1_val = {L1_nH * 1e-9}
+.param C1_val = {C1_nF * 1e-9}
+.param C_comp = {C_comp_nF * 1e-9}
+.param C_comp2 = {C_comp2_pF * 1e-12}
+
+* Inductor parasitics (same scaling as transient)
+.param L1_DCR = {0.093 * sqrt(L1_nH / 47)}
+.param L1_Rpar = {70367.7 * (47 / L1_nH)}
+
+* Cap parasitics
+.param C1_ESR = {0.0171 * (68 / C1_nF)**0.4}
+.param C1_ESL = 307p
+
+* Feedback divider
+.param R_fb_top = 10k
+.param R_fb_bot = 10k
+
+* Operating point
+.param Vin = 1.8
+.param Vout_dc = {Vref * (R_fb_top + R_fb_bot) / R_fb_bot}
+.param D = {Vout_dc / Vin}
+
+* PWM modulator gain (ramp peak-to-peak)
+.param Vramp_pp = {Vin - 1.0}
+
+* ===========================================================
+* SUPPLY
+* ===========================================================
+V2 Vdd 0 {Vin}
+
+* ===========================================================
+* AVERAGED POWER STAGE
+* ===========================================================
+* The switching transistors M9/M10 are replaced by an averaged
+* voltage source: V_sw = D * Vin. In small-signal AC, the
+* duty ratio is modulated by the compensator output.
+*
+* Control-to-output: the averaged switch node voltage is
+* d_hat * Vin, where d_hat comes from the compensator.
+* We model this as: V(sw) = (V(comp_out) / Vramp_pp) * Vin
+* This correctly captures the PWM gain Fm = 1/Vramp_pp.
+B_sw_avg N007_ac 0 V = {(V(N024_ac) / Vramp_pp) * Vin}
+
+* ===========================================================
+* OUTPUT FILTER (same L/C as transient)
+* ===========================================================
+L1 N007_ac N008_ac {L1_val} Rser={L1_DCR} Rpar={L1_Rpar}
+C1 N008_ac 0 {C1_val} Rser={C1_ESR} Lser={C1_ESL}
+
+* ===========================================================
+* LOAD
+* ===========================================================
+R1 N008_ac 0 {Rload}
+
+* ===========================================================
+* FEEDBACK DIVIDER with MIDDLEBROOK INJECTION
+* ===========================================================
+* Divider top: Vout → fb_before
+R2 N008_ac fb_before {R_fb_top}
+
+* LOOP BREAK: large inductor maintains DC bias across break
+L_break fb_before fb_after 1G
+
+* AC INJECTION: small signal voltage source
+V_inject fb_before fb_after AC 1
+
+* Divider bottom: fb_after → ground
+R3 fb_after 0 {R_fb_bot}
+
+* ===========================================================
+* TYPE II COMPENSATOR (identical to transient)
+* ===========================================================
+* Error amplifier
+X§U1 N023_ac fb_after Vdd 0 N024_ac level2 Avol=100 GBW=35Meg Slew=35Meg Ilimit=25m Rail=0 Vos=0 En=0 Enk=0 In=0 Ink=0 Rin=500Meg ;§pnba In+)In-)V+)V-)OUT
+
+* Reference
+V3 N023_ac 0 {Vref}
+
+* Compensation network
+R4 N026_ac N024_ac {R_comp}
+C2 fb_after N026_ac {C_comp}
+C3 fb_after N024_ac {C_comp2}
+
+* ===========================================================
+* LIBRARIES
+* ===========================================================
+.lib UniversalOpAmp2.lib
+
+* ===========================================================
+* AC ANALYSIS
+* ===========================================================
+.ac dec 100 100 1G
+
+* ===========================================================
+* MEASUREMENTS
+* ===========================================================
+* Loop gain T(s) = V(fb_after) / V(fb_before)
+* Phase margin: phase of T(s) at |T(s)| = 1 (0dB crossover)
+* Gain margin: |T(s)| in dB at phase(T(s)) = -180°
+
+.meas AC crossover_freq WHEN mag(V(fb_after)/V(fb_before))=1
+.meas AC crossover_freq_kHz PARAM crossover_freq/1e3
+.meas AC phase_margin_deg FIND phase(V(fb_after)/V(fb_before)) WHEN mag(V(fb_after)/V(fb_before))=1
+.meas AC gain_margin_dB FIND dB(V(fb_after)/V(fb_before)) WHEN phase(V(fb_after)/V(fb_before))=-180
+
+.backanno
+.end

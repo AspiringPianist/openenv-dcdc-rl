@@ -1,0 +1,182 @@
+* SpiceRL Boost Converter — Closed-Loop Transient (180nm Integrated)
+* ============================================================
+* Topology: Boost converter, 0.9V → 1.8V
+* Use case: Battery boost-up for 180nm SoC
+*
+* Agent tunes:
+*   W_main_um, W_rect_um — power transistor widths
+*   L1_nH, C1_nF — passives
+*   R_comp_kOhm, C_comp_nF, C_comp2_pF — compensator
+*   fsw_MHz — switching frequency
+* ============================================================
+
+.include models/cmos_180nm.lib
+.include models/components.lib
+
+* ---- Parameters (agent-tunable) ----
+.param Vdd = 1.8
+.param Vin = 0.9
+.param Vout_target = 1.8
+.param Iout = 0.2
+
+* Power transistor sizing
+.param W_main_um = 30000
+.param W_rect_um = 40000
+.param Lgate = 180n
+
+* Passive components
+.param L1_nH = 100
+.param C1_nF = 100
+.param fsw_MHz = 20
+
+* Compensator
+.param R_comp_kOhm = 10
+.param C_comp_nF = 2.2
+.param C_comp2_pF = 100
+
+* Derived
+.param fsw = {fsw_MHz * 1e6}
+.param Tsw = {1 / fsw}
+.param L1 = {L1_nH * 1e-9}
+.param C1 = {C1_nF * 1e-9}
+.param R_comp = {R_comp_kOhm * 1e3}
+.param C_comp = {C_comp_nF * 1e-9}
+.param C_comp2 = {C_comp2_pF * 1e-12}
+.param W_main = {W_main_um * 1e-6}
+.param W_rect = {W_rect_um * 1e-6}
+
+* Load and feedback
+.param Rload = {Vout_target / Iout}
+.param Vref = 0.6
+.param R_fb_top = 10k
+.param R_fb_bot = {R_fb_top * Vref / (Vout_target - Vref)}
+
+* Inductor parasitics (scaled from Coilcraft 0805HP datasheet)
+.param L1_DCR = {0.120 * sqrt(L1_nH / 100)}
+.param L1_Cpar = {0.04p * (L1_nH / 100)}
+
+* Capacitor parasitics (scaled from Würth WCAP-CSGP)
+.param C1_ESR = {0.015 * (100 / C1_nF)**0.4}
+.param C1_ESL = 300p
+
+* Ron scales as 1/W
+.param Ron_NMOS_main = {0.37 * 20000 / W_main_um}
+.param Ron_PMOS_rect = {0.15 * 40000 / W_rect_um}
+
+* ---- Input and Supply ----
+Vin vin 0 {Vin}
+Vdd vdd 0 {Vdd}
+
+* ===========================================================
+* SAWTOOTH RAMP
+* ===========================================================
+V_ramp ramp 0 PULSE(0 {Vdd} 0 {Tsw*0.999} {Tsw*0.001} 0 {Tsw})
+
+* ===========================================================
+* FEEDBACK DIVIDER
+* ===========================================================
+R_fb_top vout fb {R_fb_top}
+R_fb_bot fb 0 {R_fb_bot}
+
+* ===========================================================
+* TYPE II COMPENSATOR
+* ===========================================================
+V_ref vref_node 0 {Vref}
+B_ea comp_out 0 V = limit({100 * (V(vref_node) - V(fb))}, 0, {Vdd})
+
+R4 comp_out comp_mid {R_comp}
+C2 comp_mid fb {C_comp}
+C3 comp_out fb {C_comp2}
+
+* ===========================================================
+* PWM COMPARATOR + DEAD TIME
+* ===========================================================
+* Main switch gate (NMOS, active high): ON when comp_out > ramp
+B_gate_main gate_main_pre 0 V = {if(V(comp_out) > V(ramp), Vdd, 0)}
+* Rectifier gate (PMOS, active low): ON when comp_out < ramp
+B_gate_rect gate_rect_pre 0 V = {if(V(comp_out) > V(ramp), Vdd, 0)}
+
+* Dead-time RC delay
+R_dt_main gate_main_pre gate_main 100
+C_dt_main gate_main 0 10p
+R_dt_rect gate_rect_pre gate_rect 100
+C_dt_rect gate_rect 0 10p
+
+* ===========================================================
+* BOOST POWER STAGE — 180nm MOSFETs
+* ===========================================================
+* Inductor on input side (with DCR and parallel capacitance)
+L1 vin sw {L1}
+R_L1_dcr sw sw_dcr {L1_DCR}
+C_L1_par vin sw_dcr {L1_Cpar}
+
+* Main switch: NMOS shunts sw node to ground (charging L)
+M_main sw_dcr gate_main 0 0 nmos_180n L={Lgate} W={W_main}
+
+* Synchronous rectifier: PMOS conducts from sw to vout (discharging L)
+M_rect sw_dcr gate_rect vout_pre vout_pre pmos_180n L={Lgate} W={W_rect}
+
+* ===========================================================
+* OUTPUT CAPACITOR (with ESR + ESL)
+* ===========================================================
+L_C1_esl vout_pre c1_esl {C1_ESL}
+C1 c1_esl c1_esr {C1}
+R_C1_esr c1_esr 0 {C1_ESR}
+R_sense vout_pre vout 1m
+
+* ===========================================================
+* LOAD
+* ===========================================================
+R_load vout 0 {Rload}
+
+* Load step: at T_step, current doubles
+.param T_step = {Tsw * 150}
+I_load_step 0 vout PULSE(0 {Iout} {T_step} 10n 10n {T_step*0.5} {T_step*2})
+
+* ===========================================================
+* SIMULATION
+* ===========================================================
+.tran 0 {Tsw * 350} 0 {Tsw/100}
+.options reltol=0.003 abstol=1e-12 vntol=1e-6
+
+* ===========================================================
+* MEASUREMENTS
+* ===========================================================
+.param Tstart = {Tsw * 100}
+.param Tend = {Tsw * 140}
+
+* Power
+.meas TRAN pin AVG {-V(vin)*I(Vin)} FROM {Tstart} TO {Tend}
+.meas TRAN pout AVG {V(vout)*V(vout)/Rload} FROM {Tstart} TO {Tend}
+.meas TRAN efficiency PARAM {pout/pin}
+.meas TRAN P_total_loss PARAM {pin - pout}
+
+* Output quality
+.meas TRAN vout_avg AVG V(vout) FROM {Tstart} TO {Tend}
+.meas TRAN vout_ripple PP V(vout) FROM {Tstart} TO {Tend}
+.meas TRAN il_avg AVG I(L1) FROM {Tstart} TO {Tend}
+.meas TRAN il_ripple PP I(L1) FROM {Tstart} TO {Tend}
+
+* MOS losses
+.meas TRAN P_M_main_total AVG {V(sw_dcr)*Id(M_main)} FROM {Tstart} TO {Tend}
+.meas TRAN P_M_rect_total AVG {V(vout_pre,sw_dcr)*(-Id(M_rect))} FROM {Tstart} TO {Tend}
+.meas TRAN P_M_main_cond AVG {Id(M_main)^2 * Ron_NMOS_main} FROM {Tstart} TO {Tend}
+.meas TRAN P_M_rect_cond AVG {Id(M_rect)^2 * Ron_PMOS_rect} FROM {Tstart} TO {Tend}
+.meas TRAN P_M_main_sw PARAM {P_M_main_total - P_M_main_cond}
+.meas TRAN P_M_rect_sw PARAM {P_M_rect_total - P_M_rect_cond}
+
+* Passive losses
+.meas TRAN P_inductor_dcr AVG {I(L1)^2 * L1_DCR} FROM {Tstart} TO {Tend}
+.meas TRAN P_cap_esr AVG {I(C1)^2 * C1_ESR} FROM {Tstart} TO {Tend}
+
+* Load step transient
+.param T_step_end = {T_step + Tsw*50}
+.meas TRAN vout_max_step MAX V(vout) FROM {T_step} TO {T_step_end}
+.meas TRAN vout_min_step MIN V(vout) FROM {T_step} TO {T_step_end}
+.meas TRAN overshoot_pct PARAM {100 * abs(vout_max_step - vout_avg) / vout_avg}
+.meas TRAN undershoot_pct PARAM {100 * abs(vout_avg - vout_min_step) / vout_avg}
+
+.meas TRAN vout_avg_loaded AVG V(vout) FROM {T_step + Tsw*15} TO {T_step_end - Tsw*5}
+.meas TRAN load_regulation PARAM {100 * abs(vout_avg_loaded - vout_avg) / vout_avg}
+
+.end

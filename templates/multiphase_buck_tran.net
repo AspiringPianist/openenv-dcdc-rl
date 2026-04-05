@@ -1,0 +1,209 @@
+* SpiceRL Multiphase Buck — Closed-Loop Transient (180nm Integrated)
+* ============================================================
+* Topology: 2-phase interleaved synchronous buck for VRM
+* Spec: 1.8V → 0.9V / 1A (high-current core voltage rail)
+*
+* Both phases share one compensator. Ramps are 180° apart.
+*
+* Agent tunes:
+*   W_hi1_um, W_lo1_um — Phase 1 power FET widths
+*   W_hi2_um, W_lo2_um — Phase 2 power FET widths
+*   L1_nH, L2_nH, C1_nF — passives
+*   R_comp_kOhm, C_comp_nF, C_comp2_pF — compensator
+*   R_droop_mOhm — adaptive voltage positioning
+*   fsw_MHz — switching frequency
+* ============================================================
+
+.include models/cmos_180nm.lib
+.include models/components.lib
+
+* ---- Parameters (agent-tunable) ----
+.param Vdd = 1.8
+.param Vout_target = 0.9
+.param Iout = 1.0
+
+* Phase 1 transistor sizing
+.param W_hi1_um = 60000
+.param W_lo1_um = 30000
+* Phase 2 transistor sizing
+.param W_hi2_um = 60000
+.param W_lo2_um = 30000
+.param Lgate = 180n
+
+* Passive components
+.param L1_nH = 22
+.param L2_nH = 22
+.param C1_nF = 470
+.param fsw_MHz = 33.3
+
+* Compensator
+.param R_comp_kOhm = 5
+.param C_comp_nF = 1
+.param C_comp2_pF = 220
+
+* Droop
+.param R_droop_mOhm = 1
+
+* Derived
+.param fsw = {fsw_MHz * 1e6}
+.param Tsw = {1 / fsw}
+.param L1 = {L1_nH * 1e-9}
+.param L2 = {L2_nH * 1e-9}
+.param C1 = {C1_nF * 1e-9}
+.param R_comp = {R_comp_kOhm * 1e3}
+.param C_comp = {C_comp_nF * 1e-9}
+.param C_comp2 = {C_comp2_pF * 1e-12}
+.param W_hi1 = {W_hi1_um * 1e-6}
+.param W_lo1 = {W_lo1_um * 1e-6}
+.param W_hi2 = {W_hi2_um * 1e-6}
+.param W_lo2 = {W_lo2_um * 1e-6}
+.param R_droop = {R_droop_mOhm * 1e-3}
+
+* Load and feedback
+.param Rload = {Vout_target / Iout}
+.param Vref = 0.45
+.param R_fb_top = 10k
+.param R_fb_bot = {R_fb_top * Vref / (Vout_target - Vref)}
+
+* Inductor parasitics (scaled from Vishay IHLP for VRM)
+.param L1_DCR = {0.003 * sqrt(L1_nH / 0.47)}
+.param L2_DCR = {0.003 * sqrt(L2_nH / 0.47)}
+.param L1_Cpar = {1p * (L1_nH / 22)}
+.param L2_Cpar = {1p * (L2_nH / 22)}
+
+* Capacitor parasitics (scaled from Murata GRM MLCC)
+.param C_ESR = {0.002 * (470 / C1_nF)**0.4}
+.param C_ESL = 700p
+
+* Ron scales as 1/W
+.param Ron_PMOS = {0.15 * 40000 / W_hi1_um}
+.param Ron_NMOS = {0.37 * 20000 / W_lo1_um}
+
+* ---- Supply ----
+Vdd vdd 0 {Vdd}
+
+* ===========================================================
+* RAMP GENERATORS (180° phase shift)
+* ===========================================================
+V_ramp1 ramp1 0 PULSE(0 {Vdd} 0 {Tsw*0.999} {Tsw*0.001} 0 {Tsw})
+V_ramp2 ramp2 0 PULSE(0 {Vdd} {Tsw/2} {Tsw*0.999} {Tsw*0.001} 0 {Tsw})
+
+* ===========================================================
+* FEEDBACK + COMPENSATOR
+* ===========================================================
+R_fb_top vout fb {R_fb_top}
+R_fb_bot fb 0 {R_fb_bot}
+
+V_ref vref_node 0 {Vref}
+B_ea comp_out 0 V = limit({1000 * (V(vref_node) - V(fb))}, 0, {Vdd})
+
+R4 comp_out comp_mid {R_comp}
+C2 comp_mid fb {C_comp}
+C3 comp_out fb {C_comp2}
+
+* ===========================================================
+* PWM COMPARATORS (shared compensator, separate ramps)
+* ===========================================================
+* Phase 1
+B_gate_hi1 gate_hi1_pre 0 V = {if(V(comp_out) > V(ramp1), 0, Vdd)}
+B_gate_lo1 gate_lo1_pre 0 V = {if(V(comp_out) > V(ramp1), Vdd, 0)}
+R_dt_hi1 gate_hi1_pre gate_hi1 100
+C_dt_hi1 gate_hi1 0 10p
+R_dt_lo1 gate_lo1_pre gate_lo1 100
+C_dt_lo1 gate_lo1 0 10p
+
+* Phase 2
+B_gate_hi2 gate_hi2_pre 0 V = {if(V(comp_out) > V(ramp2), 0, Vdd)}
+B_gate_lo2 gate_lo2_pre 0 V = {if(V(comp_out) > V(ramp2), Vdd, 0)}
+R_dt_hi2 gate_hi2_pre gate_hi2 100
+C_dt_hi2 gate_hi2 0 10p
+R_dt_lo2 gate_lo2_pre gate_lo2 100
+C_dt_lo2 gate_lo2 0 10p
+
+* ===========================================================
+* PHASE 1 POWER STAGE — 180nm
+* ===========================================================
+M_hi1 sw1 gate_hi1 vdd vdd pmos_180n L={Lgate} W={W_hi1}
+M_lo1 sw1 gate_lo1 0 0 nmos_180n L={Lgate} W={W_lo1}
+L_ph1 sw1 ph1_dcr {L1}
+R_L1_dcr ph1_dcr vout_pre {L1_DCR}
+C_L1_par sw1 vout_pre {L1_Cpar}
+
+* ===========================================================
+* PHASE 2 POWER STAGE — 180nm
+* ===========================================================
+M_hi2 sw2 gate_hi2 vdd vdd pmos_180n L={Lgate} W={W_hi2}
+M_lo2 sw2 gate_lo2 0 0 nmos_180n L={Lgate} W={W_lo2}
+L_ph2 sw2 ph2_dcr {L2}
+R_L2_dcr ph2_dcr vout_pre {L2_DCR}
+C_L2_par sw2 vout_pre {L2_Cpar}
+
+* ===========================================================
+* DROOP + OUTPUT (with ESR + ESL)
+* ===========================================================
+R_droop_net vout_pre vout_cap {R_droop}
+L_C1_esl vout_cap c1_esl {C_ESL}
+C1 c1_esl c1_esr {C1}
+R_C1_esr c1_esr 0 {C_ESR}
+R_sense vout_cap vout 1m
+
+* ===========================================================
+* LOAD
+* ===========================================================
+R_load vout 0 {Rload}
+
+* Load step: 50% current increase at T_step
+.param T_step = {Tsw * 120}
+I_load_step 0 vout PULSE(0 {Iout*0.5} {T_step} 10n 10n {T_step*0.5} {T_step*2})
+
+* ===========================================================
+* SIMULATION
+* ===========================================================
+.tran 0 {Tsw * 300} 0 {Tsw/200}
+.options reltol=0.002 abstol=1e-12 vntol=1e-6
+
+* ===========================================================
+* MEASUREMENTS
+* ===========================================================
+.param Tstart = {Tsw * 80}
+.param Tend = {Tsw * 110}
+
+* Power
+.meas TRAN pin AVG {-V(vdd)*I(Vdd)} FROM {Tstart} TO {Tend}
+.meas TRAN pout AVG {V(vout)*V(vout)/Rload} FROM {Tstart} TO {Tend}
+.meas TRAN efficiency PARAM {pout/pin}
+
+* Output quality
+.meas TRAN vout_avg AVG V(vout) FROM {Tstart} TO {Tend}
+.meas TRAN vout_ripple PP V(vout) FROM {Tstart} TO {Tend}
+.meas TRAN il1_ripple PP I(L_ph1) FROM {Tstart} TO {Tend}
+.meas TRAN il2_ripple PP I(L_ph2) FROM {Tstart} TO {Tend}
+
+* MOS losses (phase 1)
+.meas TRAN P_hi1_total AVG {V(vdd,sw1)*(-Id(M_hi1))} FROM {Tstart} TO {Tend}
+.meas TRAN P_lo1_total AVG {V(sw1)*Id(M_lo1)} FROM {Tstart} TO {Tend}
+.meas TRAN P_hi1_cond AVG {Id(M_hi1)^2 * Ron_PMOS} FROM {Tstart} TO {Tend}
+.meas TRAN P_lo1_cond AVG {Id(M_lo1)^2 * Ron_NMOS} FROM {Tstart} TO {Tend}
+
+* MOS losses (phase 2)
+.meas TRAN P_hi2_total AVG {V(vdd,sw2)*(-Id(M_hi2))} FROM {Tstart} TO {Tend}
+.meas TRAN P_lo2_total AVG {V(sw2)*Id(M_lo2)} FROM {Tstart} TO {Tend}
+
+* Passive losses
+.meas TRAN P_inductor_dcr AVG {(I(L_ph1)^2 + I(L_ph2)^2) * L_DCR} FROM {Tstart} TO {Tend}
+.meas TRAN P_cap_esr AVG {I(C1)^2 * C_ESR} FROM {Tstart} TO {Tend}
+.meas TRAN P_droop AVG {I(R_droop_net)^2 * R_droop} FROM {Tstart} TO {Tend}
+
+* Transient response
+.param T_step_end = {T_step + Tsw*60}
+.meas TRAN vout_max_step MAX V(vout) FROM {T_step} TO {T_step_end}
+.meas TRAN vout_min_step MIN V(vout) FROM {T_step} TO {T_step_end}
+.meas TRAN overshoot_pct PARAM {100 * abs(vout_max_step - vout_avg) / vout_avg}
+.meas TRAN undershoot_pct PARAM {100 * abs(vout_avg - vout_min_step) / vout_avg}
+.meas TRAN settling_time_us TRIG V(vout)={vout_avg*0.95} FALL=1 TD={T_step} TARG V(vout)={vout_avg*0.99} RISE=LAST TD={T_step}
+
+* Load regulation
+.meas TRAN vout_avg_loaded AVG V(vout) FROM {T_step + Tsw*20} TO {T_step_end - Tsw*10}
+.meas TRAN load_regulation PARAM {100 * abs(vout_avg_loaded - vout_avg) / vout_avg}
+
+.end

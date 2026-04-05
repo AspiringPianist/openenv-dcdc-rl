@@ -1,0 +1,101 @@
+* SpiceRL Boost Converter — AC Analysis (Middlebrook Injection)
+* ============================================================
+* Replica of boost_tran.net with loop break at feedback node.
+* Same power stage + compensator, but with AC injection source
+* and large inductor to maintain DC bias.
+* ============================================================
+
+.include models/cmos_180nm.lib
+.include models/components.lib
+
+* ---- Parameters (same as transient — agent sets these) ----
+.param Vdd = 1.8
+.param Vin = 0.9
+.param Vout_target = 1.8
+.param Iout = 0.2
+
+.param W_main_um = 30000
+.param W_rect_um = 40000
+.param Lgate = 180n
+
+.param L1_nH = 100
+.param C1_nF = 100
+.param fsw_MHz = 20
+
+.param R_comp_kOhm = 10
+.param C_comp_nF = 2.2
+.param C_comp2_pF = 100
+
+* Derived
+.param fsw = {fsw_MHz * 1e6}
+.param Tsw = {1 / fsw}
+.param L1 = {L1_nH * 1e-9}
+.param C1 = {C1_nF * 1e-9}
+.param R_comp = {R_comp_kOhm * 1e3}
+.param C_comp = {C_comp_nF * 1e-9}
+.param C_comp2 = {C_comp2_pF * 1e-12}
+.param W_main = {W_main_um * 1e-6}
+.param W_rect = {W_rect_um * 1e-6}
+
+.param Rload = {Vout_target / Iout}
+.param Vref = 0.6
+.param R_fb_top = 10k
+.param R_fb_bot = {R_fb_top * Vref / (Vout_target - Vref)}
+
+.param L1_DCR = 0.120
+.param C1_ESR = 0.015
+
+* ---- Input and Supply ----
+Vin vin 0 {Vin}
+Vdd vdd 0 {Vdd}
+
+* ---- Ramp ----
+V_ramp ramp 0 PULSE(0 {Vdd} 0 {Tsw*0.999} {Tsw*0.001} 0 {Tsw})
+
+* ---- Feedback with LOOP BREAK ----
+R_fb_top vout fb_before {R_fb_top}
+R_fb_bot fb_after 0 {R_fb_bot}
+
+* Loop break: L_break maintains DC, V_inject provides AC test signal
+L_break fb_before fb_after 1G
+V_inject fb_before fb_after AC 1
+
+* ---- Type II Compensator ----
+V_ref vref_node 0 {Vref}
+B_ea comp_out 0 V = limit({100 * (V(vref_node) - V(fb_after))}, 0, {Vdd})
+
+R4 comp_out comp_mid {R_comp}
+C2 comp_mid fb_after {C_comp}
+C3 comp_out fb_after {C_comp2}
+
+* ---- PWM + Dead time ----
+B_gate_main gate_main_pre 0 V = {if(V(comp_out) > V(ramp), Vdd, 0)}
+B_gate_rect gate_rect_pre 0 V = {if(V(comp_out) > V(ramp), Vdd, 0)}
+R_dt_main gate_main_pre gate_main 100
+C_dt_main gate_main 0 10p
+R_dt_rect gate_rect_pre gate_rect 100
+C_dt_rect gate_rect 0 10p
+
+* ---- Boost power stage ----
+L1 vin sw {L1}
+R_L1_dcr sw sw_dcr {L1_DCR}
+M_main sw_dcr gate_main 0 0 nmos_180n L={Lgate} W={W_main}
+M_rect sw_dcr gate_rect vout_pre vout_pre pmos_180n L={Lgate} W={W_rect}
+
+* ---- Output ----
+C1 vout_pre vout_esr {C1}
+R_C1_esr vout_esr 0 {C1_ESR}
+R_sense vout_pre vout 1m
+R_load vout 0 {Rload}
+
+* ===========================================================
+* AC ANALYSIS
+* ===========================================================
+.ac dec 100 100 100Meg
+
+* ---- Measurements ----
+.meas AC crossover_freq_kHz WHEN mag(V(fb_after)/V(fb_before))=1
+.meas AC phase_margin_deg FIND phase(V(fb_after)/V(fb_before)) WHEN mag(V(fb_after)/V(fb_before))=1
+.meas AC gain_margin_dB FIND dB(V(fb_after)/V(fb_before)) WHEN phase(V(fb_after)/V(fb_before))=-180
+
+.end

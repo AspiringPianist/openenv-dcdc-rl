@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+spicyenv/
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Simulation outputs and temp artifacts
+sim_output/
+*.raw
+*.log
+*.op.raw
+*.net.*
+*.fail
+
+# OS/editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
