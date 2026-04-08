@@ -5,7 +5,7 @@ Usage:
     # Connect to a running server
     from spice_rl import SpiceRLEnv, SpiceRLAction
 
-    async with SpiceRLEnv(base_url="http://localhost:8000") as env:
+    async with SpiceRLEnv(base_url="http://localhost:7860") as env:
         result = await env.reset(task_id="easy")
         result = await env.step(SpiceRLAction(
             component_values={"L1_uH": 22.0, "Cout_uF": 100.0, "fsw_kHz": 500.0}

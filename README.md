@@ -20,5 +20,13 @@ pip install -r requirements.txt
 3. Run a local simulation smoke test:
 
 ```bash
-python test_ltspice.py
+python test_pipeline.py
 ```
+
+## Hugging Face Spaces Deployment
+
+The repository is configured to deploy directly to Hugging Face Spaces via the Docker SDK.
+1. Create a new Space on Hugging Face.
+2. Choose **Docker** as the SDK.
+3. Push the code to the space.
+4. The application will expose port `7860` under a `user` with uid 1000, compliant with Hugging Face requirements.

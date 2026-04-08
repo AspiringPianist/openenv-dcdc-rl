@@ -540,7 +540,7 @@ async def main() -> None:
     if LOCAL_IMAGE_NAME:
         env = await SpiceRLEnv.from_docker_image(LOCAL_IMAGE_NAME)
     else:
-        env = SpiceRLEnv(base_url=os.getenv("ENV_URL", "http://localhost:8000"))
+        env = SpiceRLEnv(base_url=os.getenv("ENV_URL", "http://localhost:7860"))
 
     try:
         # Evaluate across all task levels
