@@ -154,8 +154,8 @@ class SpiceSimulator:
         import time
         t0 = time.time()
 
-        # Force subprocess to avoid 'ngcomplex' CFFI duplicate struct crashes in shared lib
-        simulator = circuit.simulator(temperature=25, nominal_temperature=25, simulator='ngspice-subprocess')
+        # Reverting back to shared (the default) now that we're using a compatible ngspice container version
+        simulator = circuit.simulator(temperature=25, nominal_temperature=25)
         simulator.options(cshunt=1e-15)
 
         try:

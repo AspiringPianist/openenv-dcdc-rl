@@ -1,14 +1,18 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bullseye
 
 # Install ngspice for PySpice native backend
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ngspice libngspice0 \
+        ngspice libngspice0 libngspice0-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ENV SPICE_BACKEND=ngspice
 
 WORKDIR /app
+
+# Suppress "Note: No compatibility mode selected!" from newer ngspice 
+# which breaks PySpice's subprocess parser
+RUN echo "set compatmacs" > ~/.spiceinit
 
 # Install Python dependencies
 COPY requirements.txt .
