@@ -47,10 +47,12 @@ from server.models import SpiceRLAction
 from client import SpiceRLEnv
 
 # ---- Configuration ----
-IMAGE_NAME = os.getenv("IMAGE_NAME")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+# Optional — if you use from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 TASK_NAME = os.getenv("SPICE_RL_TASK", "easy")
 BENCHMARK = os.getenv("SPICE_RL_BENCHMARK", "spice_rl")
@@ -532,11 +534,11 @@ async def run_task(client: OpenAI, env: SpiceRLEnv, task_name: str) -> None:
 
 
 async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     # Connect to environment
-    if IMAGE_NAME:
-        env = await SpiceRLEnv.from_docker_image(IMAGE_NAME)
+    if LOCAL_IMAGE_NAME:
+        env = await SpiceRLEnv.from_docker_image(LOCAL_IMAGE_NAME)
     else:
         env = SpiceRLEnv(base_url=os.getenv("ENV_URL", "http://localhost:8000"))
 

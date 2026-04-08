@@ -151,9 +151,11 @@ class SpiceSimulator:
             raise ValueError(f"Unknown topology: {topology}")
 
         print(f"  [SIM] Running {run_name} transient via PySpice native...", flush=True)
+        import time
         t0 = time.time()
 
-        simulator = circuit.simulator(temperature=25, nominal_temperature=25)
+        # Force subprocess to avoid 'ngcomplex' CFFI duplicate struct crashes in shared lib
+        simulator = circuit.simulator(temperature=25, nominal_temperature=25, simulator='ngspice-subprocess')
         simulator.options(cshunt=1e-15)
 
         try:
