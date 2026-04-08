@@ -1,9 +1,12 @@
 FROM python:3.11-slim
 
-# Install NGSpice (headless SPICE simulator for Linux)
+# Install ngspice for PySpice native backend
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ngspice && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+        ngspice libngspice0 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV SPICE_BACKEND=ngspice
 
 WORKDIR /app
 

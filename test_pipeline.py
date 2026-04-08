@@ -67,38 +67,63 @@ try:
 except Exception as e:
     print(f"[FAIL] SpiceSimulator error: {e}")
 
-# Test 4: Check template files exist
+# Test 4: Check topology definitions
 print()
 print("=" * 50)
-print("TEST 4: Template files")
+print("TEST 4: Topology Support")
 print("=" * 50)
 for task_id, t in TASKS.items():
-    tran_ok = os.path.exists(t.tran_template)
-    print(f"  [{task_id}] tran: {'OK' if tran_ok else 'MISSING'} - {t.tran_template}")
-    if t.ac_template:
-        ac_ok = os.path.exists(t.ac_template)
-        print(f"  [{task_id}] ac:   {'OK' if ac_ok else 'MISSING'} - {t.ac_template}")
+    topology = getattr(t, "topology", "buck")
+    print(f"  [{task_id}] topology: {topology}")
+    if topology == "buck":
+        print(f"  [{task_id}] OK - Native PySpice buck supported.")
+    else:
+        print(f"  [{task_id}] WARN - Topology '{topology}' pending PySpice implementation.")
 
-# Test 5: SpiceEditor can load template
+# Test 5: PySpice Simulator execution
 print()
 print("=" * 50)
-print("TEST 5: SpiceEditor loads template")
+print("TEST 5: Simulator executes PySpice in-memory")
 print("=" * 50)
-try:
-    from spicelib import SpiceEditor
-    net = SpiceEditor(task.tran_template)
-    print(f"[PASS] Loaded {task.tran_template}")
-    # Try setting a parameter
-    net.set_parameters(W_hi_um=50000)
-    print("[PASS] set_parameters(W_hi_um=50000) succeeded")
-    net.set_parameters(L1_nH=33)
-    print("[PASS] set_parameters(L1_nH=33) succeeded")
-    net.set_parameters(R_comp=6000)
-    print("[PASS] set_parameters(R_comp=6000) succeeded")
-except Exception as e:
-    print(f"[FAIL] SpiceEditor error: {e}")
-    import traceback
-    traceback.print_exc()
+
+for task_id, task in TASKS.items():
+    print(f"\n--- Testing Task: {task.name} ({task_id}) ---")
+    try:
+        # Validate parameters to test snapping and pricing logic for medium/hard
+        difficulty = getattr(task, "difficulty", task_id)
+        clamped_params, warnings = sim.validate_params(
+            task.default_values,
+            task.param_bounds,
+            difficulty=difficulty
+        )
+        if warnings:
+            for w in warnings:
+                print(f"  [WARN] {w}")
+
+        print(f"  Running simulation with topology '{task.topology}'...")
+        result = sim.run_simulation(
+            topology=task.topology,
+            params=clamped_params,
+            run_name=f"dry_run_{task_id}"
+        )
+        
+        print(f"  [PASS] Simulator executed successfully.")
+        print(f"    Converged: {result.get('sim_converged')}")
+        print(f"    Vout Avg: {result.get('vout_avg', 0):.3f} V")
+        print(f"    Vout Ripple: {result.get('vout_ripple', 0):.3f} V")
+        
+        # Verify pricing was captured for medium/hard
+        if difficulty in ["medium", "hard"]:
+            l_price = clamped_params.get('L1_Price_USD', 0.0)
+            c_price = clamped_params.get('C1_Price_USD', 0.0)
+            print(f"    Inductor Cost: ${l_price:.2f}")
+            print(f"    Capacitor Cost: ${c_price:.2f}")
+            
+        print(f"    Raw Reward metric mapped: {result.get('sim_converged')}")
+    except Exception as e:
+        print(f"  [FAIL] PySpice execution error for {task_id}: {e}")
+        import traceback
+        traceback.print_exc()
 
 print()
 print("=" * 50)

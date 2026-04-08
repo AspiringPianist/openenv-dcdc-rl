@@ -108,6 +108,16 @@ class SpiceRLObservation(BaseObservation):
         default_factory=dict, description="Target specification for this task"
     )
 
+    # ---- Environment-provided LLM coaching ----
+    design_guidance: Optional[str] = Field(
+        default=None,
+        description="Step-specific design guidance synthesized from metrics and specs",
+    )
+    math_toolbox: Optional[str] = Field(
+        default=None,
+        description="Allowed equations/functions for controller and power-stage calculations",
+    )
+
 
 class SpiceRLState(BaseState):
     """Full internal environment state.

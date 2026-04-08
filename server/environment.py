@@ -13,8 +13,10 @@ from openenv.core.env_server.types import (
     Observation,
     State,
 )
+from openenv.core.env_server.interfaces import Environment
 
 from server.models import SpiceRLAction, SpiceRLObservation, SpiceRLState
+from server.guidance import build_design_guidance, build_math_toolbox
 from server.reward import compute_reward
 from server.simulator import SpiceSimulator
 from server.tasks import TASKS, TaskSpec
@@ -22,7 +24,7 @@ from server.tasks import TASKS, TaskSpec
 logger = logging.getLogger(__name__)
 
 
-class SpiceRLEnvironment:
+class SpiceRLEnvironment(Environment):
     """OpenEnv-compatible environment for DC-DC converter design.
 
     Each episode:
@@ -37,6 +39,8 @@ class SpiceRLEnvironment:
         self._state = SpiceRLState(episode_id=str(uuid4()), step_count=0)
         self._task: Optional[TaskSpec] = None
         self._done = False
+        self._last_metrics: Dict[str, Any] = {}
+        self._last_reward: float = 0.0
 
     def reset(
         self,
@@ -48,6 +52,12 @@ class SpiceRLEnvironment:
 
         Pass task_id in kwargs to select the task. Default: "easy".
         """
+        if seed is not None:
+            import random
+            import numpy as np
+            random.seed(seed)
+            np.random.seed(seed)
+
         task_id = kwargs.get("task_id", "easy")
         if task_id not in TASKS:
             task_id = "easy"
@@ -65,8 +75,15 @@ class SpiceRLEnvironment:
 
         # Run initial simulation with default values to give the agent a baseline
         initial_metrics = self._run_with_params(self._task.default_values)
+        self._last_metrics = initial_metrics
+        self._last_reward = 0.0
 
-        return self._make_observation(initial_metrics, reward=0.0)
+        return self._make_observation(
+            initial_metrics,
+            reward=0.0,
+            previous_metrics=None,
+            previous_reward=None,
+        )
 
     def step(
         self,
@@ -107,7 +124,9 @@ class SpiceRLEnvironment:
 
         # Validate and clamp parameters
         clamped, warnings = self._simulator.validate_params(
-            component_values, self._task.param_bounds
+            component_values, 
+            self._task.param_bounds,
+            difficulty=self._task.difficulty
         )
         if warnings:
             logger.info(f"Parameter warnings: {warnings}")
@@ -115,10 +134,12 @@ class SpiceRLEnvironment:
         self._state.current_action = clamped
 
         # Run simulation
+        prev_metrics = self._last_metrics
+        prev_reward = self._last_reward
         metrics = self._run_with_params(clamped)
 
         # Compute reward
-        reward = compute_reward(metrics, self._task.spec, self._task.difficulty)
+        reward = compute_reward(metrics, self._task.spec, self._task.difficulty, params=clamped)
         self._state.cumulative_reward += reward
         self._state.best_reward = max(self._state.best_reward, reward)
 
@@ -128,8 +149,15 @@ class SpiceRLEnvironment:
             or reward >= self._task.success_threshold
         )
         self._state.done = self._done
+        self._last_metrics = metrics
+        self._last_reward = reward
 
-        return self._make_observation(metrics, reward=reward)
+        return self._make_observation(
+            metrics,
+            reward=reward,
+            previous_metrics=prev_metrics,
+            previous_reward=prev_reward,
+        )
 
     @property
     def state(self) -> State:
@@ -143,10 +171,9 @@ class SpiceRLEnvironment:
 
         try:
             metrics = self._simulator.run_simulation(
-                template_path=self._task.tran_template,
+                topology=self._task.topology,
                 params=params,
                 run_name=f"step_{self._state.step_count}",
-                ac_template_path=self._task.ac_template,
             )
             return metrics
         except Exception as e:
@@ -161,9 +188,29 @@ class SpiceRLEnvironment:
         metrics: Dict[str, Any],
         reward: float = 0.0,
         error: Optional[str] = None,
+        previous_metrics: Optional[Dict[str, Any]] = None,
+        previous_reward: Optional[float] = None,
     ) -> Observation:
         """Convert simulation metrics into a typed Observation."""
         task = self._task
+        param_names = task.tunable_params if task else []
+        spec = task.spec if task else {}
+        current_action = self._state.current_action
+
+        design_guidance = build_design_guidance(
+            metrics=metrics,
+            spec=spec,
+            param_names=param_names,
+            previous_metrics=previous_metrics,
+            reward=reward,
+            previous_reward=previous_reward,
+            last_action=current_action,
+        )
+        math_toolbox = build_math_toolbox(
+            spec=spec,
+            param_names=param_names,
+            last_action=current_action,
+        )
 
         return SpiceRLObservation(
             done=self._done,
@@ -192,5 +239,8 @@ class SpiceRLEnvironment:
             task_id=task.task_id if task else "",
             step_number=self._state.step_count,
             max_steps=task.max_steps if task else 10,
-            spec=task.spec if task else {},
+            spec=spec,
+            # Environment-provided coaching for all clients
+            design_guidance=design_guidance,
+            math_toolbox=math_toolbox,
         )

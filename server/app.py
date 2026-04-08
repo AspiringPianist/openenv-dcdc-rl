@@ -4,6 +4,10 @@ SpiceRL FastAPI Application.
 Creates the HTTP/WebSocket server using OpenEnv's create_app utility.
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from openenv.core.env_server.http_server import create_app
 from server.environment import SpiceRLEnvironment
 from server.models import SpiceRLAction, SpiceRLObservation
