@@ -1,3 +1,13 @@
+---
+title: spiceRL
+emoji: "🧪"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # openenv-dcdc-rl
 
 OpenEnv-compliant RL environment to design efficient DC-DC converters for LLMs, modeling bond wire inductances, parasitic inductors, resistors, capacitors, and real vendor models.
